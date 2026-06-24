@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -175,22 +174,50 @@ func (j *JellyWol) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 
 // matchesPath checks if the request URL matches any of the provided patterns using basic wildcards.
 func (j *JellyWol) matchesPath(r *http.Request, patterns []string) bool {
-	if len(patterns) == 0 {
-		return false
-	}
-
-	reqPath := r.URL.Path
 	for _, pattern := range patterns {
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			if strings.HasPrefix(reqPath, prefix) {
-				return true
-			}
-		} else if reqPath == pattern {
+		if matchesPathPattern(pattern, r.URL.Path) {
 			return true
 		}
 	}
+
 	return false
+}
+
+// matchesPathPattern reports whether path matches pattern.
+// The only special character is '*', which matches any sequence of characters,
+// including '/'.
+func matchesPathPattern(pattern, path string) bool {
+	patternIndex, pathIndex := 0, 0
+	lastStarIndex, pathIndexAfterStar := -1, 0
+
+	for pathIndex < len(path) {
+		switch {
+		case patternIndex < len(pattern) &&
+			pattern[patternIndex] == path[pathIndex]:
+			patternIndex++
+			pathIndex++
+
+		case patternIndex < len(pattern) &&
+			pattern[patternIndex] == '*':
+			lastStarIndex = patternIndex
+			pathIndexAfterStar = pathIndex
+			patternIndex++
+
+		case lastStarIndex >= 0:
+			patternIndex = lastStarIndex + 1
+			pathIndexAfterStar++
+			pathIndex = pathIndexAfterStar
+
+		default:
+			return false
+		}
+	}
+
+	for patternIndex < len(pattern) && pattern[patternIndex] == '*' {
+		patternIndex++
+	}
+
+	return patternIndex == len(pattern)
 }
 
 // sendWOL broadcasts the Magic Packet(s) and manages the cooldown.
